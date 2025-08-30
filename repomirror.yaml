@@ -1,0 +1,3 @@
+sourceRepo: ../repomirror
+targetRepo: .
+transformationInstructions: turn into a flat repo with as few files as possible, more comments, and easy entry point
