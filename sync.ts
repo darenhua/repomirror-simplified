@@ -126,7 +126,7 @@ ${transformationInstructions}`;
 - Maintaining the repository`;
 
   const result = await query({ prompt: metaPrompt });
-  return result.output;
+  return result as string;
 }
 
 async function createRepoMirrorFiles(
@@ -205,10 +205,10 @@ export async function init(options?: InitOptions): Promise<void> {
   ]);
 
   const finalConfig: RepomirrorConfig = {
-    source_repo: options?.sourceRepo || answers.sourceRepo,
-    target_repo: options?.targetRepo || answers.targetRepo,
+    source_repo: options?.sourceRepo || answers.sourceRepo || defaults.sourceRepo,
+    target_repo: options?.targetRepo || answers.targetRepo || defaults.targetRepo,
     transformation_instructions:
-      options?.transformationInstructions || answers.transformationInstructions,
+      options?.transformationInstructions || answers.transformationInstructions || defaults.transformationInstructions,
     config_version: "0.1.0",
   };
 
