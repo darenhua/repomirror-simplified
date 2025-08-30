@@ -126,7 +126,7 @@ ${transformationInstructions}`;
 - Maintaining the repository`;
 
   const result = await query({ prompt: metaPrompt });
-  return result as string;
+  return (result as any).output || result as unknown as string;
 }
 
 async function createRepoMirrorFiles(
