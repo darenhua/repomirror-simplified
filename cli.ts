@@ -1,0 +1,235 @@
+#!/usr/bin/env node
+import { Command } from "commander";
+import { init, sync, syncForever, remote, push, pull } from "./sync";
+import { githubActions, setupGithubPrSync, dispatchSync } from "./github";
+
+const program = new Command();
+
+program
+  .name("repomirror")
+  .description("Sync and transform repositories using AI agents")
+  .version("0.1.0")
+  .addHelpText(
+    "after",
+    `
+Configuration:
+  repomirror uses a repomirror.yaml file to store configuration.
+  On first run, settings are saved to this file.
+  On subsequent runs, the file is used for defaults.
+
+  Command-line flags override both yaml defaults and interactive prompts.
+
+Examples:
+  $ npx repomirror init
+      Interactive mode with prompts
+
+  $ npx repomirror init --source ./ --target ../myrepo-ts --instructions "convert to typescript"
+      Skip prompts and use provided values
+
+  $ npx repomirror help
+      Show this help message`,
+  );
+
+program
+  .command("init")
+  .description("Initialize repomirror in current directory")
+  .option("-s, --source <path>", "Source repository path")
+  .option("-t, --target <path>", "Target repository path")
+  .option("-i, --instructions <text>", "Transformation instructions")
+  .action((options) => {
+    init({
+      sourceRepo: options.source,
+      targetRepo: options.target,
+      transformationInstructions: options.instructions,
+    });
+  });
+
+program
+  .command("sync")
+  .description("Run one sync iteration")
+  .option("--auto-push", "Automatically push to all remotes after successful sync")
+  .action((options) => sync({ autoPush: options.autoPush }));
+
+program
+  .command("sync-one")
+  .description("Run one sync iteration (alias for sync)")
+  .option("--auto-push", "Automatically push to all remotes after successful sync")
+  .action((options) => sync({ autoPush: options.autoPush }));
+
+program
+  .command("sync-forever")
+  .description("Run sync continuously")
+  .option("--auto-push", "Automatically push to all remotes after each sync iteration")
+  .action((options) => syncForever({ autoPush: options.autoPush }));
+
+program
+  .command("remote <action> [args...]")
+  .description("Manage remote repositories")
+  .addHelpText(
+    "after",
+    `
+Actions:
+  add <name> <url> [branch]    Add a remote repository (default branch: main)
+  list                         List configured remotes
+  remove <name>                Remove a remote repository
+
+Examples:
+  $ npx repomirror remote add origin https://github.com/user/repo.git
+  $ npx repomirror remote add staging https://github.com/user/staging.git develop
+  $ npx repomirror remote list
+  $ npx repomirror remote remove origin`,
+  )
+  .action((action, args) => remote(action, ...args));
+
+program
+  .command("push")
+  .description("Push transformed changes to remote repositories")
+  .option("-r, --remote <name>", "Remote repository name")
+  .option("-b, --branch <name>", "Branch name to push to")
+  .option("--all", "Push to all configured remotes")
+  .option("--dry-run", "Show what would be pushed without actually pushing")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ npx repomirror push
+      Push to default remote (origin/main)
+
+  $ npx repomirror push --remote staging
+      Push to specific remote using its configured branch
+
+  $ npx repomirror push --remote origin --branch feature-branch
+      Push to specific remote and branch
+
+  $ npx repomirror push --all
+      Push to all configured remotes
+
+  $ npx repomirror push --dry-run
+      Show what would be pushed without pushing`,
+  )
+  .action((options) => push(options));
+
+program
+  .command("pull")
+  .description("Pull source changes and trigger re-sync")
+  .option("--source-only", "Pull source without re-sync")
+  .option("--sync-after", "Pull and run continuous sync after")
+  .option("--check", "Check for source changes without pulling")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ npx repomirror pull
+      Pull source changes and re-sync (if auto_sync is enabled)
+
+  $ npx repomirror pull --source-only
+      Pull source changes without triggering sync
+
+  $ npx repomirror pull --sync-after
+      Pull source changes and run continuous sync
+
+  $ npx repomirror pull --check
+      Check for available changes without pulling`,
+  )
+  .action((options) => pull(options));
+
+program
+  .command("github-actions")
+  .description("Generate GitHub Actions workflow for automated syncing")
+  .option("-n, --name <name>", "Workflow file name (default: repomirror-sync.yml)")
+  .option("-s, --schedule <cron>", "Cron schedule for automatic runs")
+  .option("--no-auto-push", "Disable automatic pushing to target repo")
+  .addHelpText(
+    "after",
+    `
+Generates a GitHub Actions workflow file for automated repository syncing.
+
+Examples:
+  $ npx repomirror github-actions
+      Interactive setup with prompts
+
+  $ npx repomirror github-actions --schedule "0 */12 * * *"
+      Run every 12 hours
+
+  $ npx repomirror github-actions --no-auto-push
+      Create workflow without automatic push to target
+
+Notes:
+  - Requires repomirror.yaml to be present
+  - Creates workflow in .github/workflows/
+  - You'll need to set up CLAUDE_API_KEY secret in GitHub`,
+  )
+  .action((options) => githubActions({
+    workflowName: options.name,
+    schedule: options.schedule,
+    autoPush: options.autoPush,
+  }));
+
+program
+  .command("setup-github-pr-sync")
+  .description("Setup GitHub Actions workflow for PR-triggered sync")
+  .option("-t, --target-repo <repo>", "Target repository (owner/repo format)")
+  .option("-l, --times-to-loop <number>", "Number of times to loop sync-one command", "3")
+  .option("--overwrite", "Force overwrite existing workflow file")
+  .addHelpText(
+    "after",
+    `
+Sets up a GitHub Actions workflow that runs sync-one command on PR merges.
+
+Examples:
+  $ npx repomirror setup-github-pr-sync
+      Interactive setup with prompts
+
+  $ npx repomirror setup-github-pr-sync --target-repo myorg/myrepo
+      Specify target repository directly
+
+  $ npx repomirror setup-github-pr-sync --times-to-loop 5
+      Set number of sync iterations
+
+  $ npx repomirror setup-github-pr-sync --overwrite
+      Force overwrite existing workflow file
+
+Notes:
+  - Creates .github/workflows/repomirror.yml
+  - Settings are persisted to repomirror.yaml
+  - Workflow has workflow_dispatch trigger for manual runs
+  - Requires ANTHROPIC_API_KEY and GITHUB_TOKEN secrets`,
+  )
+  .action((options) => setupGithubPrSync({
+    targetRepo: options.targetRepo,
+    timesToLoop: options.timesToLoop ? parseInt(options.timesToLoop) : undefined,
+    overwrite: options.overwrite,
+  }));
+
+program
+  .command("dispatch-sync")
+  .description("Dispatch GitHub Actions workflow for manual sync")
+  .option("-y, --yes", "Skip confirmation prompt")
+  .option("-q, --quiet", "Suppress output (requires --yes)")
+  .addHelpText(
+    "after",
+    `
+Dispatches a workflow_dispatch event to the repomirror.yml workflow.
+
+Examples:
+  $ npx repomirror dispatch-sync
+      Interactive mode with confirmation prompt
+
+  $ npx repomirror dispatch-sync --yes
+      Skip confirmation and dispatch immediately
+
+  $ npx repomirror dispatch-sync --yes --quiet
+      Silent dispatch without output
+
+Notes:
+  - Requires .github/workflows/repomirror.yml to exist
+  - Requires GitHub CLI (gh) to be installed and authenticated
+  - Workflow must have workflow_dispatch trigger enabled
+  - --quiet flag can only be used with --yes flag`,
+  )
+  .action((options) => dispatchSync({
+    yes: options.yes,
+    quiet: options.quiet,
+  }));
+
+program.parse();
