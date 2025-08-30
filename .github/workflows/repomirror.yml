@@ -1,0 +1,70 @@
+name: RepoMirror PR Sync
+
+on:
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches: [ main ]
+    paths:
+      - '.repomirror/**'
+      - 'repomirror.yaml'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout source repository
+      uses: actions/checkout@v4
+      with:
+        path: source
+    
+    - name: Checkout target repository  
+      uses: actions/checkout@v4
+      with:
+        repository: darenhua/repomirror-simplified
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: target
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Install repomirror
+      run: npm install -g repomirror
+    
+    - name: Setup Claude Code
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Setting up Claude Code..."
+        mkdir -p ~/.config/claude
+        echo "api_key = \"$ANTHROPIC_API_KEY\"" > ~/.config/claude/config
+    
+    - name: Run RepoMirror sync loop
+      working-directory: source
+      env:
+        SKIP_CLAUDE_TEST: true
+      run: |
+        for i in $(seq 1 3); do
+          echo "=== Sync iteration $i of 3 ==="
+          npx repomirror sync-one --auto-push || echo "Sync iteration $i failed, continuing..."
+          if [ $i -lt 3 ]; then
+            echo "Sleeping 30 seconds before next iteration..."
+            sleep 30
+          fi
+        done
+    
+    - name: Push final changes to target
+      working-directory: target
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        if [ -n "$(git status --porcelain)" ]; then
+          git add -A
+          git commit -m "Automated PR sync from source repository [$(date)]"
+          git push
+        else
+          echo "No changes to push"
+        fi

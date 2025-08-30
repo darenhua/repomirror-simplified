@@ -1,3 +1,6 @@
 sourceRepo: ../repomirror
 targetRepo: .
-transformationInstructions: turn into a flat repo with as few files as possible, more comments, and easy entry point
+transformationInstructions: turn into a flat repo with as few files as possible,
+  more comments, and easy entry point
+target_remote: darenhua/repomirror-simplified
+times_to_loop: 3
